@@ -12,11 +12,11 @@ Timely perform a limitation of the power delivered by the inverter so you can co
 This proyect is part of a bigger proyect to visualize and control the electrical energy of private homes and small bussiness.
 
 Use: 
-<p>fronius-mon [-i num_inv] [[-l] [-p pot_inv]] [-d] [dev_file]
+<p><b>fronius-mon [-i num_inv] [[-l] [-p pot_inv]] [-d] [dev_file]</b>
 <dl>
 <dt>-i</dt> <dd>number of inverter in rs422 network/connetion. 1 is the default</dd>
 <dt>-l</dt> <dd>limit generating power to avoid export of energy to grid. Requires -p option</dd>
 <dt> -p</dt> <dd>nominal power of inverter in watts</dd>
 <dt>-d</dt> <dd>display frames for debug</dd>
-<dt>dev_file</dt>  <dd>device for rs422. Default is /dev/ttyUSB0")</dd>
+<dt>dev_file</dt>  <dd>device for rs422. Default is /dev/ttyUSB0</dd>
 </dl>
