@@ -1,0 +1,1 @@
+/home/juan/repositorio-git/eastron-mon/src/registro.h
