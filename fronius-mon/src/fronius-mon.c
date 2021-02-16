@@ -32,6 +32,7 @@
 #include <sys/shm.h>
 #include <sys/timerfd.h>
 #include <limits.h>
+#include <float.h>
 
 #include "registro.h"
 
@@ -45,7 +46,7 @@
 
 
 /* VARIABLES GLOBALES */
-char *identificacion = "fronius-mon  Autor:Junavar versión: 61 (13/02/2021)";
+char *identificacion = "fronius-mon  Autor:Junavar versión: 69 (16/02/2021)";
 char *portname1 = "/dev/ttyUSB0";
 //char *portname1 = "/dev/rs422-fronius";
 
@@ -427,7 +428,6 @@ int static send_command(int fd, struct fronius_frame *pff_request,struct fronius
 	return EXIT_SUCCESS;
 }
 
-
 int fi_get_version(int fd, unsigned char n_inverter, struct data_response_get_version *versions)
 {
 
@@ -468,7 +468,7 @@ int fi_get_version(int fd, unsigned char n_inverter, struct data_response_get_ve
 	return 0;
 }
 
-int fi_get_power(int fd, unsigned char n_inverter, int *power){
+int fi_get_power(int fd, unsigned char n_inverter, float *power){
 
 	int rc;
 	struct data_response_get_power {
@@ -510,14 +510,14 @@ int fi_get_power(int fd, unsigned char n_inverter, int *power){
 	}
 
 	datos_devueltos= (struct data_response_get_power *)&ff_response.data_plus_checksum;
-	*power=(int)(256*datos_devueltos->msb+datos_devueltos->lsb)*
+	*power=(256*datos_devueltos->msb+datos_devueltos->lsb)*
 			pow(10,datos_devueltos->exp);
 
 	return EXIT_SUCCESS;
 }
 
 
-int fi_get_day_energy(int fd, unsigned char n_inverter, int *daily_energy){
+int fi_get_day_energy(int fd, unsigned char n_inverter, float *daily_energy){
 
 	int rc;
 	struct data_response_get_parameter {
@@ -559,7 +559,7 @@ int fi_get_day_energy(int fd, unsigned char n_inverter, int *daily_energy){
 	}
 
 	datos_devueltos= (struct data_response_get_parameter *)&ff_response.data_plus_checksum;
-	*daily_energy=(int)(256*datos_devueltos->msb+datos_devueltos->lsb)*
+	*daily_energy=(256*datos_devueltos->msb+datos_devueltos->lsb)*
 			pow(10,datos_devueltos->exp);
 
 	return EXIT_SUCCESS;
@@ -693,7 +693,6 @@ int fi_get_inverter_caps(int fd, unsigned char n_inverter, unsigned char *invert
 }
 
 
-
 int fi_set_powerlimit(int fd, unsigned char n_inverter, unsigned char p_rel){
 
 	int rc;
@@ -778,26 +777,26 @@ int main(int argc, char *argv[]) {
 	struct stat file_info; //esctura para información de ficehro de datos de inversor
 	char linea[1024+1]; //linea de registro de datos de inversor
 
-	time_t curtime;
+	time_t segundo_actual=0;
+	time_t segundo_anterior=0;
+	int segundos_intervalo;
 	struct tm *loc_time;
 	char buf[150]; //buffer para string de tiempo
 
 	struct data_response_get_version versions;
-	int potencia;
 	unsigned char inverter_caps;
 	int lim_pot=100; // limite de potencia puesto al inversor (en porcentaje de la potencia nominal)
-	int energia_diaria_generada;
+	//float energia_diaria_generada;
 	float tension_DC;
 	float corriente_DC;
-	int energia_interv;
-	int energia_diaria_generada_anterior;
+	float energia_diaria_generada_anterior;
 
-	time_t segundo_actual=0;
-	time_t segundo_anterior=0;
-	int segundos_intervalo;
 
-	int pot_max,pot_min;// potencia maxima y minima en un minuto
-	int pot_med; // potencia media en un minuto
+
+	float pot_max,pot_min;// potencia generada maxima y minima en intervalo 15 minuto
+	float pot_med=0; // potencia generada media en 15 minuto
+	int lim_pot_para_media=0; //acumula los limites (porcentuales) de potencia en el intervalo para luego calcular la media del intervalo (15min, 900 segundos)
+
 
 	printf ("%s", identificacion);
 
@@ -865,39 +864,8 @@ int main(int argc, char *argv[]) {
      * accede o crea area de memoria compartida con medidor de potencia importada
 	 */
 	int shmid;
-
-#if 0
-	struct entradaregistrodiario{
-		int energia_imp;
-		int energia_exp;
-		int energia_consumida;
-		int energia_generada;
-		int energia_generable;
-		int potencia_max;
-		int potencia_min;
-	};
-
-	struct datos_publicados {
-		char tiempo[25]; // 10 de fecha + 1 blanco + 9 de tiempo + 5 de offset + /0
-		int potencia_consumo;
-		float tension_consumo;
-		float intensidad_consumo;
-		float frecuencia_consumo;
-		float factor_potencia_consumo;
-		int energia_total_consumo;
-		float energia_parcial_consumo;
-		int potencia_generada;
-		int limitacion_potencia_generada;
-		int potencia_generable;
-		struct entradaregistrodiario entradaregistrodiario[4*25]; // se realiza una entrada por cada 1/4 de hora. 25 horas para cambio horario
-
-	} *datos_publicados;
-#endif
-
 	struct datos_publicados *datos_publicados;
-
-	shmid = shmget(0x00001234, sizeof (struct datos_publicados), IPC_CREAT | 0666);
-
+	shmid = shmget(SHM_KEY_DATOS_PUBLICADOS, sizeof (struct datos_publicados), IPC_CREAT | 0666);
 	datos_publicados = shmat(shmid, NULL, 0);
 
 #if 1
@@ -912,10 +880,6 @@ int main(int argc, char *argv[]) {
 	}
 #endif
 
-	//Minuto en el que se empieza a registrar
-	curtime = time(NULL);
-	loc_time = localtime (&curtime); // Converting current time to local time
-
 	/*
 	 * Temporizador de cada segundo
 	 */
@@ -928,7 +892,7 @@ int main(int argc, char *argv[]) {
 	 * alinea el inicio del temporizador con el inicio de segundo de tiempo real
 	 */
 
-	/* obtiene el tiempo actual en segundos*/
+	/* obtiene el tiempo actual en segundos y nanosegundos*/
 	 gettimeofday(&tiempo, NULL);
 	 /* ajusta salto de temporizador con el siguiente segunto en tiempo absoluto*/
 	ts.it_value.tv_sec=tiempo.tv_sec+1;
@@ -1000,22 +964,21 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		//se anota y guarda la primera energia y su tiempo
-		rc=fi_get_day_energy(fd, num_inversor, &energia_diaria_generada);
+		//se espera al vencimiento del temporizador se obtiene y guarda la energia inicial y su tiempo
+		read(fd_timer_segundo, &numExp, sizeof(uint64_t));
+		segundo_anterior= time(NULL);
+		rc=fi_get_day_energy(fd, num_inversor, &datos_publicados->energia_generada_dia);
 		if (rc==-1){
 			printf("Error en fi_get_day_energy:%s\n", msgerror);
 			cerrar_ps=1;
 			continue;
 		}
-		energia_diaria_generada_anterior=energia_diaria_generada;
-
+		energia_diaria_generada_anterior=datos_publicados->energia_generada_dia;
 		pot_max=0;
-		pot_min=INT_MAX;
+		pot_min=FLT_MAX;
+		pot_med=0;
+		lim_pot_para_media=0;
 
-		read(fd_timer_segundo, &numExp, sizeof(uint64_t));
-		segundo_anterior= time(NULL);
-
-		int lim_pot_para_media=0; //acumula los limites depotencia en el intervalo para luego calcular la media del intervalo (60 segundos)
 
 
 		while (1){ // bucle de lectura y ajuste de potencia
@@ -1024,22 +987,29 @@ int main(int argc, char *argv[]) {
 			* la ejecucion queda suspendida en la función read() hasta que el temporizador se dispare (alcance el nuevo segundo)
 			*/
 			read(fd_timer_segundo, &numExp, sizeof(uint64_t));
+			//  se toma el tiempo
+			segundo_actual = time(NULL);
+			loc_time = localtime (&segundo_actual); // Converting current time to local time
 
-			//  tiempo
-			curtime = time(NULL);
-			segundo_actual=curtime;
-			loc_time = localtime (&curtime); // Converting current time to local time
+			// acciones cada 15m
+			if (loc_time->tm_min%15==0){
 
-			rc=fi_get_power(fd, num_inversor, &potencia);
+				energia_diaria_generada_anterior = datos_publicados->energia_generada_dia;
+				segundo_anterior=segundo_actual;
+				pot_max=0;
+				pot_min=FLT_MAX;
+				lim_pot_para_media=0;
+			}
+
+			rc=fi_get_power(fd, num_inversor, &datos_publicados->potencia_generada);
 			if (rc==-1){
 				printf("Error en fi_get_power:%s\n", msgerror);
-				potencia=0;
+				datos_publicados->potencia_generada=0;
 				cerrar_ps=1;
 				break;
 			}
 
-			datos_publicados->potencia_generada=potencia;
-
+			//TODO quitar esta variable. Emplear datos_instantaneos->potencia
 			int potencia_importada;
 			potencia_importada=datos_publicados->potencia_consumo - datos_publicados->potencia_generada;
 
@@ -1049,9 +1019,7 @@ int main(int argc, char *argv[]) {
 					lim_pot=lim_pot<10?10:lim_pot;  //evita poner limite por debajo del 10% para evitar parada de inversor
 				}
 				else{ //incremento lento (1%) de la potencia generada hasta llegar a 100%
-
 					lim_pot=lim_pot>=100-1?100:lim_pot+1;
-
 				}
 				rc=fi_set_powerlimit(fd, num_inversor,lim_pot);
 				if (rc==-1){
@@ -1061,7 +1029,7 @@ int main(int argc, char *argv[]) {
 				}
 			}
 
-			rc=fi_get_day_energy(fd, num_inversor, &energia_diaria_generada);
+			rc=fi_get_day_energy(fd, num_inversor, &datos_publicados->energia_generada_dia);
 			if (rc==-1){
 				printf("Error en fi_get_day_energy:%s\n", msgerror);
 				cerrar_ps=1;
@@ -1081,57 +1049,45 @@ int main(int argc, char *argv[]) {
 				break;
 			}
 
-			pot_max=potencia>pot_max?potencia:pot_max;
-			pot_min=potencia<pot_min?potencia:pot_min;
+			pot_max=datos_publicados->potencia_generada>pot_max?datos_publicados->potencia_generada:pot_max;
+			pot_min=datos_publicados->potencia_generada<pot_min?datos_publicados->potencia_generada:pot_min;
 			lim_pot_para_media+=lim_pot;
 
 			strftime (buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S%z", loc_time);
-			printf("\r%s Pot gen.: %5dW  Lim gen.: %5dW  Pot imp.: %5dW  Pot con.: %5dW  Energia diaria: %5dWh  DC: %3.1fV %.3fA %dW",
+			printf("\r%s Pot gen.: %5.1fW  Lim gen.: %5dW  Pot imp.: %5dW  Pot con.: %5.1fW  Energia diaria: %5.1fWh  DC: %3.1fV %.3fA %5.1fW",
 					buf,
 					datos_publicados->potencia_generada,
 					(lim_pot*potencia_nominal_inversor)/100,
 					potencia_importada,
 					datos_publicados->potencia_consumo,
-					energia_diaria_generada,
+					datos_publicados->energia_generada_dia,
 					tension_DC,
 					corriente_DC,
-					(int) (tension_DC*corriente_DC)
+					(tension_DC*corriente_DC)
 					);
 
 			fflush(stdout);
 
-			// Registrar cuando las lecturas completan un minuto
-					//la segunda condicion es para evitar que el primer tiempo tras arrancar el programa coincida con segundo=0 lo que provoca una division por 0.
-			if (loc_time->tm_sec==0 && segundo_anterior!=0){
-				energia_interv = energia_diaria_generada - energia_diaria_generada_anterior;
-				energia_diaria_generada_anterior = energia_diaria_generada;
-				segundos_intervalo = (int)(segundo_actual - segundo_anterior);
-				segundo_anterior = segundo_actual;
-				//TODO no deberia de pasar que segundos intervalo==0 codigo provisional para evitar execpcion division por 0 y registrar la situacion con MAX_INT
-				if (segundos_intervalo <=0){
-					pot_med=INT_MAX;
-					lim_pot_para_media=INT_MAX;
-				}
-				else{
-					pot_med = energia_interv * 3600 / segundos_intervalo;
-					lim_pot_para_media=lim_pot_para_media/segundos_intervalo;
-				}
+			int intervalo_15min;
+			intervalo_15min=loc_time->tm_hour*4+(loc_time->tm_min/15);
+			datos_publicados->entradaregistrodiario[intervalo_15min].energia_generada=datos_publicados->energia_generada_dia-energia_diaria_generada_anterior;
 
-				sprintf(linea, "%s %4d %6d %3d %4d %4d %3d\n", buf, pot_med, energia_interv, segundos_intervalo,  pot_max, pot_min, lim_pot_para_media);
+			segundos_intervalo = segundo_actual - segundo_anterior;
+			if (segundos_intervalo > 0){
+				pot_med = datos_publicados->entradaregistrodiario[intervalo_15min].energia_generada * 3600 / segundos_intervalo;
+				lim_pot_para_media=lim_pot_para_media/segundos_intervalo;
+			}
+
+			// Registrar cuando las lecturas completan un minuto
+			//la segunda condicion es para evitar que el primer tiempo tras arrancar el programa coincida con segundo=0 lo que provoca una division por 0.
+			if (loc_time->tm_sec==0 && segundo_anterior!=0){
+				sprintf(linea, "%s %4.1f %6.1f %3d %4.1f %4.1f %3d\n", buf, pot_med, datos_publicados->entradaregistrodiario[intervalo_15min].energia_generada, segundos_intervalo,  pot_max, pot_min, lim_pot_para_media);
 				printf("\n%s", linea);
 				write(fdatos, linea, strlen(linea));
-
-				int indice;
-				indice=loc_time->tm_hour*4+(loc_time->tm_min/15);
-				datos_publicados->entradaregistrodiario[indice].energia_generada+=energia_interv;
-				printf("\nindice:%d energia gen:%d energia con:%d \n",
-						indice,
-						datos_publicados->entradaregistrodiario[indice].energia_generada,
-						datos_publicados->entradaregistrodiario[indice].energia_consumida);
-
-				pot_max=0;
-				pot_min=INT_MAX;
-				lim_pot_para_media=0;
+				printf("intervalo_15min:%d energia gen:%5.1f energia con:%5.1f \n",
+						intervalo_15min,
+						datos_publicados->entradaregistrodiario[intervalo_15min].energia_generada,
+						datos_publicados->entradaregistrodiario[intervalo_15min].energia_consumida);
 
 			}
 		} // final bucle de lecturas y ajuste potencia
