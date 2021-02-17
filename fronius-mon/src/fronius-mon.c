@@ -46,7 +46,7 @@
 
 
 /* VARIABLES GLOBALES */
-char *identificacion = "fronius-mon  Autor:Junavar versión: 70 (17/02/2021)";
+char *identificacion = "fronius-mon  Autor:Junavar versión: 71 (17/02/2021)";
 char *portname1 = "/dev/ttyUSB0";
 //char *portname1 = "/dev/rs422-fronius";
 
