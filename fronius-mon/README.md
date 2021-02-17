@@ -11,7 +11,7 @@ Timely perform a limitation of the power delivered by the inverter so you can co
 
 This proyect is part of a bigger proyect to visualize and control the electrical energy of private homes and small bussiness.
 
-Use: 
+Use:
 <p><b>fronius-mon  -i numInv -l -p potInv dev_file </b> 
 
 <dl>
