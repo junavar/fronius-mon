@@ -12,7 +12,7 @@ Timely perform a limitation of the power delivered by the inverter so you can co
 This proyect is part of a bigger proyect to visualize and control the electrical energy of private homes and small bussiness.
 
 Use: 
-<p><b>fronius-mon  -i numInv -l -p potInv dev_file </b>
+<p><b>fronius-mon  -i numInv -l -p potInv dev_file </b> 
 
 <dl>
 <dt>-i</dt> <dd>number of inverter in rs422 network/connetion. 1 is the default</dd>
