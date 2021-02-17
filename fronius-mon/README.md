@@ -21,3 +21,4 @@ Use:
 <dt>-d</dt> <dd>display frames for debug</dd>
 <dt>dev_file</dt>  <dd>device for rs422. Default is /dev/ttyUSB0</dd>
 </dl>
+ 
