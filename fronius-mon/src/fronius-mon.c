@@ -46,7 +46,7 @@
 
 
 /* VARIABLES GLOBALES */
-char *identificacion = "fronius-mon  Autor:Junavar versión: 69 (16/02/2021)";
+char *identificacion = "fronius-mon  Autor:Junavar versión: 70 (17/02/2021)";
 char *portname1 = "/dev/ttyUSB0";
 //char *portname1 = "/dev/rs422-fronius";
 
@@ -964,7 +964,7 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		//se espera al vencimiento del temporizador se obtiene y guarda la energia inicial y su tiempo
+		//se espera al vencimiento del temporizador, se obtiene y guarda la energia inicial y su tiempo
 		read(fd_timer_segundo, &numExp, sizeof(uint64_t));
 		segundo_anterior= time(NULL);
 		rc=fi_get_day_energy(fd, num_inversor, &datos_publicados->energia_generada_dia);
@@ -990,16 +990,6 @@ int main(int argc, char *argv[]) {
 			//  se toma el tiempo
 			segundo_actual = time(NULL);
 			loc_time = localtime (&segundo_actual); // Converting current time to local time
-
-			// acciones cada 15m
-			if (loc_time->tm_min%15==0){
-
-				energia_diaria_generada_anterior = datos_publicados->energia_generada_dia;
-				segundo_anterior=segundo_actual;
-				pot_max=0;
-				pot_min=FLT_MAX;
-				lim_pot_para_media=0;
-			}
 
 			rc=fi_get_power(fd, num_inversor, &datos_publicados->potencia_generada);
 			if (rc==-1){
@@ -1090,6 +1080,16 @@ int main(int argc, char *argv[]) {
 						datos_publicados->entradaregistrodiario[intervalo_15min].energia_consumida);
 
 			}
+
+			// acciones cada en el segundo que se cumple cada 1/4 de hora (15min)
+			if (loc_time->tm_min%15==0 && loc_time->tm_sec==0){
+				energia_diaria_generada_anterior = datos_publicados->energia_generada_dia;
+				segundo_anterior=segundo_actual;
+				pot_max=0;
+				pot_min=FLT_MAX;
+				lim_pot_para_media=0;
+			}
+
 		} // final bucle de lecturas y ajuste potencia
 	}// fin bucle de apertura
 	return EXIT_SUCCESS;
